@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       searchResults,
     })
 
-    // Step 3: Save to database
+    // Step 3: Save to database (graceful fallback if tables not set up)
     const serverSupabase = createServerClient()
     const { data: content, error: insertError } = await serverSupabase
       .from('contents')
@@ -59,15 +59,30 @@ export async function POST(request: NextRequest) {
       .select()
       .single()
 
+    // If DB tables don't exist yet, return generated content without saving
+    const dbFailed = !!insertError
+    const fallbackContent = {
+      id: `temp-${Date.now()}`,
+      user_id: user.id,
+      project_id: projectId || null,
+      platform,
+      title,
+      body: contentBody,
+      sources: searchResults,
+      status: 'draft',
+      created_at: new Date().toISOString(),
+      _unsaved: true,
+    }
+
     if (insertError) {
-      console.error('Insert error:', insertError)
-      return NextResponse.json({ error: 'Failed to save content' }, { status: 500 })
+      console.warn('DB insert failed (tables may not exist):', insertError.message)
     }
 
     return NextResponse.json({
       success: true,
-      content,
+      content: content || fallbackContent,
       searchResults,
+      dbSaved: !dbFailed,
     })
   } catch (error: any) {
     console.error('Generate error:', error)

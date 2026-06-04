@@ -39,6 +39,10 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query
 
     if (error) {
+      // If table doesn't exist, return empty list gracefully
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) {
+        return NextResponse.json({ contents: [], _tableNotReady: true })
+      }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
