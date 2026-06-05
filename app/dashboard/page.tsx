@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createBrowserClient } from '../../lib/supabase'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import ContentCard from '../../components/ContentCard'
 
@@ -16,65 +14,26 @@ interface Content {
   created_at: string
 }
 
+const STORAGE_KEY = 'content-engine-contents'
+
 export default function DashboardPage() {
   const [contents, setContents] = useState<Content[]>([])
   const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
-  const router = useRouter()
-  const supabase = createBrowserClient()
 
   useEffect(() => {
-    checkAuth()
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        setContents(JSON.parse(saved))
+      }
+    } catch {}
+    setLoading(false)
   }, [])
 
-  async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      router.push('/login')
-      return
-    }
-    setUser(session.user)
-    fetchContents(session.access_token)
-  }
-
-  async function fetchContents(token: string) {
-    try {
-      const res = await fetch('/api/contents', {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json()
-      if (data.contents) {
-        setContents(data.contents)
-      }
-    } catch (err) {
-      console.error('Failed to fetch contents:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleDelete(id: string) {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
-
-    try {
-      await fetch('/api/contents', {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id }),
-      })
-      setContents(contents.filter(c => c.id !== id))
-    } catch (err) {
-      console.error('Delete failed:', err)
-    }
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
-    router.push('/login')
+  function handleDelete(id: string) {
+    const updated = contents.filter(c => c.id !== id)
+    setContents(updated)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated))
   }
 
   if (loading) {
@@ -87,32 +46,20 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen p-6 md:p-10">
-      {/* Header */}
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-10">
           <div>
             <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-            <p className="text-slate-400 mt-1">
-              {user?.email} · {contents.length} 篇内容
-            </p>
+            <p className="text-slate-400 mt-1">{contents.length} 篇内容</p>
           </div>
-          <div className="flex gap-3">
-            <Link
-              href="/dashboard/generate"
-              className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg text-white font-medium hover:from-blue-600 hover:to-purple-700 transition-all text-sm"
-            >
-              + 生成内容
-            </Link>
-            <button
-              onClick={handleLogout}
-              className="px-5 py-2.5 border border-slate-600 rounded-lg text-slate-300 hover:border-slate-400 hover:text-white transition-all text-sm"
-            >
-              退出
-            </button>
-          </div>
+          <Link
+            href="/dashboard/generate"
+            className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg text-white font-medium hover:from-blue-600 hover:to-purple-700 transition-all text-sm"
+          >
+            + 生成内容
+          </Link>
         </div>
 
-        {/* Content Grid */}
         {contents.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-6xl mb-4">📝</div>

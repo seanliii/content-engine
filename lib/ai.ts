@@ -1,5 +1,6 @@
 /**
- * AI content generation using AISA API (OpenAI-compatible)
+ * AI content generation using GLM API (ZhipuAI)
+ * Fallback: any OpenAI-compatible API
  */
 
 import { SearchResult } from './search'
@@ -68,46 +69,109 @@ export async function generateContent({
 
   const userMessage = `主题关键词：${keywords.join('、')}${searchContext}\n\n请基于以上信息，生成一篇高质量的内容。请用 JSON 格式返回，包含 title 和 body 两个字段。`
 
-  const response = await fetch(process.env.AISA_BASE_URL!, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.AISA_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: process.env.AISA_MODEL || 'gpt-4.1-mini',
-      messages: [
-        { role: 'system', content: platformPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      temperature: 0.8,
-      response_format: { type: 'json_object' },
-    }),
-  })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`AI API error: ${response.status} - ${errorText}`)
-  }
-
-  const data = await response.json()
-  const content = data.choices?.[0]?.message?.content
-
-  if (!content) {
-    throw new Error('No content returned from AI')
-  }
+  // Try GLM API first (available in sandbox)
+  const glmApiKey = process.env.GLM_API_KEY || '1d79aecd1d2349eca01c04b39cd37c08.4GHNgZ2F5Cw13PBW'
+  const glmBaseUrl = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
 
   try {
-    const parsed = JSON.parse(content)
-    return {
-      title: parsed.title || `${keywords[0]} - ${platform}`,
-      body: parsed.body || content,
+    const response = await fetch(glmBaseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${glmApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'glm-4-flash',
+        messages: [
+          { role: 'system', content: platformPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        temperature: 0.8,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`GLM API error: ${response.status} - ${errorText}`)
     }
-  } catch {
-    // If JSON parsing fails, use the raw content
-    return {
-      title: `${keywords[0]} - ${platform}`,
-      body: content,
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
+
+    if (!content) {
+      throw new Error('No content returned from GLM API')
+    }
+
+    // Try to extract JSON from content
+    try {
+      // Try direct JSON parse
+      const parsed = JSON.parse(content)
+      return {
+        title: parsed.title || `${keywords[0]} - ${platform}`,
+        body: parsed.body || content,
+      }
+    } catch {
+      // Try to extract JSON from markdown code block
+      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1])
+          return {
+            title: parsed.title || `${keywords[0]} - ${platform}`,
+            body: parsed.body || content,
+          }
+        } catch {}
+      }
+      // Use raw content as body
+      return {
+        title: `${keywords[0]} - ${platform}内容`,
+        body: content,
+      }
+    }
+  } catch (glmError) {
+    console.warn('GLM API failed, trying AISA fallback:', glmError)
+    
+    // Fallback to AISA API
+    const response = await fetch(process.env.AISA_BASE_URL!, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.AISA_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: process.env.AISA_MODEL || 'gpt-4.1-mini',
+        messages: [
+          { role: 'system', content: platformPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        temperature: 0.8,
+        response_format: { type: 'json_object' },
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`AI API error: ${response.status} - ${errorText}`)
+    }
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
+
+    if (!content) {
+      throw new Error('No content returned from AI')
+    }
+
+    try {
+      const parsed = JSON.parse(content)
+      return {
+        title: parsed.title || `${keywords[0]} - ${platform}`,
+        body: parsed.body || content,
+      }
+    } catch {
+      return {
+        title: `${keywords[0]} - ${platform}`,
+        body: content,
+      }
     }
   }
 }

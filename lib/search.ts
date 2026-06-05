@@ -1,6 +1,6 @@
 /**
- * DuckDuckGo HTML search - server-side only
- * Fetches search results by parsing DuckDuckGo's HTML response
+ * Search implementation using catclaw-search (baidu engine)
+ * Fallback: DuckDuckGo HTML search
  */
 
 export interface SearchResult {
@@ -10,6 +10,15 @@ export interface SearchResult {
 }
 
 export async function searchDuckDuckGo(query: string, maxResults = 5): Promise<SearchResult[]> {
+  // Try catclaw-search via baidu first (available in sandbox)
+  try {
+    const results = await searchViaCatclaw(query, maxResults)
+    if (results.length > 0) return results
+  } catch (err) {
+    console.warn('Catclaw search failed, trying DuckDuckGo:', err)
+  }
+
+  // Fallback: DuckDuckGo HTML
   const encodedQuery = encodeURIComponent(query)
   const url = `https://html.duckduckgo.com/html/?q=${encodedQuery}`
 
@@ -34,10 +43,29 @@ export async function searchDuckDuckGo(query: string, maxResults = 5): Promise<S
   }
 }
 
+async function searchViaCatclaw(query: string, maxResults: number): Promise<SearchResult[]> {
+  // Call catclaw search via local subprocess or HTTP
+  // Since this runs server-side in Next.js, we use child_process
+  const { execSync } = require('child_process')
+  
+  const output = execSync(
+    `python3 /app/skills/catclaw-search/scripts/catclaw_search.py search "${query.replace(/"/g, '\\"')}" -s baidu-search-v2`,
+    { timeout: 10000, encoding: 'utf8' }
+  )
+  
+  const data = JSON.parse(output)
+  const items = data.results || []
+  
+  return items.slice(0, maxResults).map((item: any) => ({
+    title: item.title || '',
+    url: item.url || '',
+    snippet: item.snippet || item.content?.slice(0, 200) || '',
+  }))
+}
+
 function parseResults(html: string, maxResults: number): SearchResult[] {
   const results: SearchResult[] = []
 
-  // Parse result blocks from DDG HTML
   const resultRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>(.*?)<\/a>/g
 
   let match
@@ -51,7 +79,6 @@ function parseResults(html: string, maxResults: number): SearchResult[] {
     }
   }
 
-  // Fallback: simpler regex if first one fails
   if (results.length === 0) {
     const simpleRegex = /<a[^>]*class="result__a"[^>]*>(.*?)<\/a>/g
     const snippetRegex = /<a[^>]*class="result__snippet"[^>]*>(.*?)<\/a>/g

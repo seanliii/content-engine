@@ -1,33 +1,26 @@
 'use client'
 
 import { useState } from 'react'
-import { createBrowserClient } from '../../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import GenerateForm from '../../../components/GenerateForm'
+
+const STORAGE_KEY = 'content-engine-contents'
 
 export default function GeneratePage() {
   const [result, setResult] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
-  const supabase = createBrowserClient()
 
   async function handleGenerate(keywords: string[], platform: string) {
     setLoading(true)
     setError('')
     setResult(null)
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      router.push('/login')
-      return
-    }
-
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ keywords, platform }),
@@ -40,6 +33,16 @@ export default function GeneratePage() {
       }
 
       setResult(data)
+
+      // Save to localStorage
+      if (data.content) {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY)
+          const list = saved ? JSON.parse(saved) : []
+          list.unshift(data.content)
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(list))
+        } catch {}
+      }
     } catch (err: any) {
       setError(err.message || '生成内容时出错')
     } finally {
